@@ -1,0 +1,35 @@
+# temporary (branch mac-hang): does playback hang on the CI's Mac?
+name: mac-hang
+on:
+  push:
+    branches: [mac-hang]
+jobs:
+  hang:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: jurplel/install-qt-action@v4
+        with: { version: '6.8.3', host: mac, target: desktop, arch: clang_64, modules: 'qtmultimedia qtshadertools qtimageformats', cache: true }
+      - run: brew install ninja ffmpeg
+      - working-directory: app
+        run: node scripts/fetch-vlc.js mac-arm64
+      - run: echo '{}' > qt/keys.json
+      - run: bash qt/packaging/macos/package.sh arm64 "$(which ffmpeg)" "$GITHUB_WORKSPACE/qt/dist"
+      - run: bash qt/tests/make-media.sh testdata
+      - name: playback, repeatedly
+        run: |
+          set +e
+          sed "s/VLCR_OPEN=';'.join(\[/VLCR_OPEN=';'.join(['nowait', /" qt/tests/run.py > qt/tests/run_nowait.py
+          grep -c "'nowait', 'set:language" qt/tests/run_nowait.py || grep -c "\['nowait', 'set:" qt/tests/run_nowait.py
+          APP="qt/build-mac-arm64/Vela Player.app/Contents/MacOS/Vela Player"
+          for i in $(seq 1 25); do
+            for k in run_nowait run; do
+              python3 qt/tests/$k.py "$APP" testdata --out out/$k-$i playback > out-$k-$i.txt 2>&1; echo "$k $i: $(grep -E '^(PASS|FAIL)|Timeout' out-$k-$i.txt | tr '\n' ' ')"
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: hang, path: out/ }
