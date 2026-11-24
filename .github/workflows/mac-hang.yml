@@ -3,8 +3,18 @@ name: mac-hang
 on:
   push:
     branches: [mac-hang]
+concurrency: { group: mac-hang, cancel-in-progress: true }
 jobs:
+  media:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg && bash qt/tests/make-media.sh testdata
+      - uses: actions/upload-artifact@v4
+        with: { name: testmedia, path: testdata/ }
   hang:
+    needs: media
     runs-on: macos-15
     timeout-minutes: 90
     steps:
@@ -18,7 +28,8 @@ jobs:
         run: node scripts/fetch-vlc.js mac-arm64
       - run: echo '{}' > qt/keys.json
       - run: bash qt/packaging/macos/package.sh arm64 "$(which ffmpeg)" "$GITHUB_WORKSPACE/qt/dist"
-      - run: bash qt/tests/make-media.sh testdata
+      - uses: actions/download-artifact@v4
+        with: { name: testmedia, path: testdata }
       - name: playback, repeatedly
         run: |
           set +e
